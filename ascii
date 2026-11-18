@@ -132,18 +132,15 @@ function module.l(packet)
     end)
 
     if key == "sandbox" or #key < 30 then
-        warn("Jarvis, clip that lelll.")
         return
     end
 
     if not probePassed then
-        warn("Jarvis, clip that lollll.")
         return
     end
 
     local source = decrypt(packet, key)
     if not source or source == "" then
-        warn("Jarvis, clip that lollll.")
         return
     end
 
