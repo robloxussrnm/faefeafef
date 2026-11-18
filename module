@@ -1,0 +1,205 @@
+-- Deobfuscated reconstruction of attachment 2, the "moduleeeee..." Lua script.
+-- Local names describe the recovered bytecode. The caller supplies the
+-- encrypted packet to module.l, and the key is read from _G.z at startup.
+
+local function fromHex(hex)
+    local bytes = {}
+    for index = 1, #hex, 2 do
+        local value = tonumber(hex:sub(index, index + 1), 16)
+        bytes[#bytes + 1] = string.char(value)
+    end
+    return table.concat(bytes)
+end
+
+local function checksum(hex, key)
+    local value = tonumber(key) or 42
+    for index = 1, #hex do
+        value = bit32.bxor(value, string.byte(hex, index) or 0)
+        value = (value * 31 + index * 997) % 4294967295
+    end
+    return string.format("%08x", value)
+end
+
+local function makeKeyStream(key, count)
+    local stream = {}
+    local keyText = tostring(key)
+    local state = 0
+
+    for index = 1, count do
+        local firstIndex = (index % #keyText) + 1
+        local firstByte = string.byte(keyText, firstIndex) or 0
+        state = (state * 31 + firstByte + index * 997) % 256
+
+        local secondIndex = ((index * firstByte + state) % #keyText) + 1
+        local secondByte = string.byte(keyText, secondIndex) or 0
+        local mixed = bit32.bxor(secondByte, state, index % 256)
+        stream[index] = (mixed + index * 7) % 256
+    end
+
+    return stream
+end
+
+local function decrypt(packet, key)
+    if #packet < 8 then
+        return ""
+    end
+
+    local tag = packet:sub(-8)
+    local hex = packet:sub(1, -9)
+    if tag ~= checksum(hex, key) then
+        return ""
+    end
+
+    local ciphertext = fromHex(hex)
+    local count = #ciphertext
+    if count == 0 then
+        return ""
+    end
+
+    local stream = makeKeyStream(key, count * 3)
+    local bytes = {}
+    for index = 1, count do
+        local value = string.byte(ciphertext, index)
+        bytes[index] = string.char((value - index * 3 - stream[count + index]) % 256)
+    end
+
+    local carry = 0
+    for index = 1, count do
+        local value = bit32.bxor(string.byte(bytes[index]), carry)
+        carry = (carry + value) % 256
+        bytes[index] = string.char(value)
+    end
+
+    for index = 1, count do
+        bytes[index] = string.char(bit32.bxor(string.byte(bytes[index]), stream[index]))
+    end
+
+    return table.concat(bytes)
+end
+
+local module = {}
+
+local function isWorkingNativeCompiler(candidate)
+    if type(candidate) ~= "function" then
+        return false
+    end
+
+    local inspected, info = pcall(function()
+        return debug and debug.getinfo and debug.getinfo(candidate)
+    end)
+    if not inspected or not info or info.what ~= "C" then
+        return false
+    end
+
+    local compiled, chunk = pcall(candidate, "return '__ADCC_SENTINEL__'")
+    if not compiled or type(chunk) ~= "function" then
+        return false
+    end
+
+    local ran, result = pcall(chunk)
+    return ran and result == "__ADCC_SENTINEL__"
+end
+
+local selectedCompiler
+if rawget(_G, "load") and isWorkingNativeCompiler(rawget(_G, "load")) then
+    selectedCompiler = rawget(_G, "load")
+end
+
+if not selectedCompiler then
+    if rawget(_G, "loadstring") and isWorkingNativeCompiler(rawget(_G, "loadstring")) then
+        selectedCompiler = rawget(_G, "loadstring")
+    end
+end
+
+if not selectedCompiler and type(debug) == "table" and debug.getregistry then
+    local success, registry = pcall(debug.getregistry)
+    if success and type(registry) == "table" then
+        for _, value in pairs(registry) do
+            if type(value) == "function" and isWorkingNativeCompiler(value) then
+                selectedCompiler = value
+                break
+            end
+        end
+    end
+end
+
+local environment = (getfenv and getfenv(0)) or _G
+local environmentCompiler = environment.loadstring
+if not selectedCompiler and environmentCompiler and isWorkingNativeCompiler(environmentCompiler) then
+    selectedCompiler = environmentCompiler
+end
+
+setmetatable(_G, {
+    __newindex = function(globals, name, value)
+        if name == "loadstring" or name == "load" then
+            return
+        end
+        rawset(globals, name, value)
+    end,
+})
+
+local function getCompiler()
+    if not selectedCompiler then
+        return function()
+            return function() end
+        end
+    end
+
+    return function(source)
+        if not source or source == "" then
+            return function() end
+        end
+
+        local success, chunk = pcall(function()
+            return selectedCompiler(source)
+        end)
+        if not success or not chunk then
+            return function() end
+        end
+        return chunk
+    end
+end
+
+function give()
+    return _G.z or "sandbox"
+end
+
+local key = give()
+
+function module.l(packet)
+    local probePassed = pcall(function()
+        local compiler = selectedCompiler or loadstring or load
+        return compiler('return "https://erisyph.neocities.org/?gid=OBFUSCATOR_DECRYPTOR"')()
+    end)
+
+    if key == "sandbox" or #key < 30 then
+        warn("Jarvis, clip that. 🤣1")
+        return
+    end
+
+    if not probePassed then
+        warn("Jarvis, clip that. 🤣2")
+        return
+    end
+
+    if not selectedCompiler then
+        warn("jarvis clip ts 🤣")
+        return
+    end
+
+    local source = decrypt(packet, key)
+    if not source or source == "" then
+        warn("Jarvis, clip that. 🤣2")
+        return
+    end
+
+    local compiler = getCompiler()
+    local chunk = compiler(source)
+    if type(chunk) == "function" then
+        chunk()
+    else
+        warn("Jarvis, clip that. 🤣2")
+    end
+end
+
+return module
