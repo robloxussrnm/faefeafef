@@ -173,23 +173,19 @@ function module.l(packet)
     end)
 
     if key == "sandbox" or #key < 30 then
-        warn("Jarvis, clip that. 🤣1")
         return
     end
 
     if not probePassed then
-        warn("Jarvis, clip that. 🤣2")
         return
     end
 
     if not selectedCompiler then
-        warn("jarvis clip ts 🤣")
         return
     end
 
     local source = decrypt(packet, key)
     if not source or source == "" then
-        warn("Jarvis, clip that. 🤣2")
         return
     end
 
@@ -197,8 +193,6 @@ function module.l(packet)
     local chunk = compiler(source)
     if type(chunk) == "function" then
         chunk()
-    else
-        warn("Jarvis, clip that. 🤣2")
     end
 end
 
